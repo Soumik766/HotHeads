@@ -111,8 +111,8 @@ extending this with an AI coding assistant.
 
 PRs welcome — this is meant to be forked and messed with. Good first
 additions: new personas, a scenario gallery, a judge that declares a
-winner. Run `pytest tests/ -v` before opening a PR (all tests are
-offline, no Ollama required).
+winner. See [CONTRIBUTING.md](CONTRIBUTING.md) for the setup, workflow,
+and code style.
 
 ## License
 
