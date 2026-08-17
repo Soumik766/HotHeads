@@ -42,13 +42,20 @@ PERSONA_FILE = ROOT / "personas" / "debate_default.yaml"
 CUSTOM_FILE = Path(__file__).parent / "personas.json"
 OLLAMA_HOST = ollama_client.DEFAULT_HOST
 
-# Random display names handed out per fight so the debate feels like people
-# arguing, not model checkpoints.
+# Random display names handed out per fight — deliberately silly instead of
+# normal human names, so the cast always feels a little unhinged before
+# anyone's even said anything.
 NAMES = [
-    "Maya", "Leo", "Zara", "Kai", "Nina", "Ravi", "Mila", "Theo", "Ana",
-    "Omar", "Lily", "Hugo", "Sana", "Finn", "Aria", "Dev", "Cleo", "Ezra",
-    "Tara", "Noor", "Jude", "Rhea", "Sam", "Vik", "June", "Ash", "Bela",
-    "Nico", "Isla", "Max", "Ivy", "Ken", "Rosa", "Emil", "Gita", "Owen",
+    "Dried Milk", "Expired Milk", "Frozen Tea", "Stale Bread", "Burnt Toast",
+    "Flat Soda", "Soggy Cereal", "Moldy Cheese", "Lukewarm Coffee",
+    "Wilted Lettuce", "Cracked Egg", "Melted Ice Cream", "Squished Banana",
+    "Overcooked Rice", "Spoiled Yogurt", "Rotten Tomato", "Crushed Chips",
+    "Deflated Balloon", "Broken Umbrella", "Left Sock", "Tangled Charger",
+    "Empty Wallet", "Rusty Spoon", "Chipped Mug", "Sticky Remote",
+    "Cold Pizza", "Warm Beer", "Flat Tire", "Dead Battery", "Faded Jeans",
+    "Lost Receipt", "Crumpled Napkin", "Squeaky Chair", "Leaky Pen",
+    "Foggy Mirror", "Burnt Popcorn", "Melted Crayon", "Wobbly Table",
+    "Static Sock", "Damp Firewood",
 ]
 
 PALETTE = ["yellow", "cyan", "green", "magenta", "red", "blue"]
