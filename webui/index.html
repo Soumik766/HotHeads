@@ -765,15 +765,25 @@ function readTime(t){
 async function pump(){
   if (pumping) return;
   pumping = true;
+  let freshBeat = true;   // true right after start / a phase divider
   while (true){
     if (queue.length){
       const item = queue.shift();
-      if (item.type === "phase"){ removeTyping(); addPhaseDivider(item.label); continue; }
-      showTypingFor(item.persona);
-      await sleep(typeDelay());
+      if (item.type === "phase"){ removeTyping(); addPhaseDivider(item.label); freshBeat = true; continue; }
+      if (freshBeat){
+        // first line of a beat: show typing, then let it "think" briefly
+        showTypingFor(item.persona);
+        await sleep(typeDelay());
+      }
       removeTyping();
       revealMsg(item);
+      // show whoever's up next as typing RIGHT NOW, overlapping with the
+      // read pause below, so there's never a dead gap before a reply
+      const next = queue.find(q => q.type !== "phase");
+      if (next) showTypingFor(next.persona);
+      else if (!streamDone && generating) showTypingFor(generating);
       await sleep(readTime(item.text));
+      freshBeat = false;
     } else if (streamDone){
       break;
     } else {

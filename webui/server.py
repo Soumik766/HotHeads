@@ -409,11 +409,14 @@ CHAT_STYLE = (
     "\nRight now you're all hanging out in a casual group chat, not a formal"
     " debate. Text like a real person: ONE short line most of the time, under"
     " 20 words. Sometimes reply with just a quick reaction or an action in"
-    " asterisks like *sips tea* or *raises eyebrow*. Emojis are fine when"
-    " they fit, never forced. React directly to the last message — agree,"
-    " tease, doubt, push back. Every so often throw a direct question at"
-    " another member, like 'do you agree, {other}?'. Together, work toward"
-    " an actual answer."
+    " asterisks like *sips tea* or *raises eyebrow*. And sometimes — a few"
+    " times a conversation — just say ONE or TWO words and stop, nothing"
+    " more: 'lol no.' 'facts.' 'wait what.' 'same tbh.' Real texting has"
+    " those too; don't turn every single reply into a mini-essay. Emojis are"
+    " fine when they fit, never forced. React directly to the last message —"
+    " agree, tease, doubt, push back. Every so often throw a direct question"
+    " at another member, like 'do you agree, {other}?'. Together, work"
+    " toward an actual answer."
 )
 
 CHAT_CLOSING = (
@@ -432,9 +435,11 @@ SOLO_STYLE = (
     " a little teasing, on their side even while you're arguing with them"
     " ('nah bro hear me out though...', '*tilts head* okay but what about...',"
     " 'i mean i love you but that's not it chief'). ONE short line most of the"
-    " time, under 20 words. Actions in asterisks and emoji are fine, never"
-    " forced. Talk directly to them, you don't know their name so don't"
-    " invent one."
+    " time, under 20 words. And every so often — not every time — just fire"
+    " back ONE or TWO words and stop: 'nah.' 'doubt it.' 'lol no.' 'wait,"
+    " what.' Real texting isn't always a full sentence. Actions in asterisks"
+    " and emoji are fine, never forced. Talk directly to them, you don't know"
+    " their name so don't invent one."
 )
 
 
