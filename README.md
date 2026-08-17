@@ -7,21 +7,45 @@ own), pit them against each other, and watch the fight unfold one bubble
 at a time — mood-driven faces, a heat gauge, the works. Everything runs
 on models you pull yourself via [Ollama](https://ollama.com).
 
-```bash
-git clone git@github.com:Soumik766/HotHeads.git
-cd HotHeads
-python start.py
-```
-
-One file, zero flags. `start.py` installs missing Python packages,
-verifies Ollama is installed and running, downloads any missing models,
-warms them up, and opens HotHeads in your browser. If anything's
-missing it tells you exactly what and gives you a Retry button — it
-never just hangs.
-
 <!-- 🎬 Drop a recorded GIF here — this is the single highest-leverage
      thing you can add to this README. -->
 <!-- ![demo](docs/demo.gif) -->
+
+## Getting started
+
+**1. Install [Ollama](https://ollama.com/download)** (if you don't have it).
+That's it for setup — no models to pull by hand, no config to edit.
+
+**2. Get the code:**
+```bash
+git clone https://github.com/Soumik766/HotHeads.git
+cd HotHeads
+```
+
+**3. Run it:**
+```bash
+python start.py
+```
+
+That's the whole thing. `start.py`:
+- installs the handful of Python packages it needs
+- checks Ollama is installed and starts it if it isn't running
+- downloads the couple of small models the default cast uses (~2 GB total,
+  one-time)
+- warms them up so the first reply isn't slow
+- opens **HotHeads** in your browser automatically
+
+If any step can't complete on its own, the screen tells you exactly
+what's missing and gives you a **Retry** button once you've fixed it —
+it never just hangs with no explanation.
+
+Requirements: **Python 3.10+** and **Ollama**. Nothing else to install
+by hand.
+
+> Low on disk space on your main drive? Ollama stores models under your
+> user profile by default. Point it somewhere else first by setting the
+> `OLLAMA_MODELS` environment variable to a folder on another drive
+> before running `start.py`.
 
 ## Two modes
 
@@ -54,11 +78,12 @@ checkpoints.
 ## What's actually happening
 
 ```
-webui/server.py     aiohttp app: pre-flight checks, persona/model management,
-                     runs the debate loop, streams turns over SSE
-webui/index.html     the whole UI — mood faces, pacing, heat gauge, personas modal
-swarm_kit/            the reusable core: config, Ollama client, orchestrator
-personas/*.yaml       built-in character definitions (extendable from the UI)
+start.py             the one file you run — deps, Ollama checks, launches the server
+webui/server.py       aiohttp app: pre-flight checks, persona/model management,
+                       runs the debate loop, streams turns over SSE
+webui/index.html       the whole UI — mood faces, pacing, heat gauge, personas modal
+swarm_kit/              the reusable core: config, Ollama client, orchestrator
+personas/*.yaml         built-in character definitions (extendable from the UI)
 ```
 
 Each persona is a genuinely separate model call — they see the running
@@ -79,13 +104,15 @@ python swarm.py --scenario pizza-debate   # live, needs Ollama + pulled models
 python swarm.py --topic "tabs vs spaces"  # your own topic, Optimist vs Skeptic
 ```
 
-See `AGENTS.md` for the full architecture write-up if you're extending
-this with an AI coding assistant.
+See [AGENTS.md](AGENTS.md) for the full architecture write-up if you're
+extending this with an AI coding assistant.
 
-## Requirements
+## Contributing
 
-- Python 3.10+
-- [Ollama](https://ollama.com) — `start.py` will tell you if it's missing
+PRs welcome — this is meant to be forked and messed with. Good first
+additions: new personas, a scenario gallery, a judge that declares a
+winner. Run `pytest tests/ -v` before opening a PR (all tests are
+offline, no Ollama required).
 
 ## License
 

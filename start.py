@@ -3,11 +3,16 @@
 
     python start.py
 
-It installs missing Python packages, points Ollama's model storage at
-D:\\ollama-models, starts the local web server, and opens the UI in your
-browser. Everything else (Ollama server, model downloads, model warm-up)
-is verified and auto-fixed from inside the UI — if a check fails, the UI
-tells you what's needed and gives you a Retry button.
+It installs missing Python packages, starts the local web server, and
+opens the UI in your browser. Everything else (Ollama server, model
+downloads, model warm-up) is verified and auto-fixed from inside the
+UI — if a check fails, the UI tells you what's needed and gives you a
+Retry button.
+
+Low on space on your default drive? Set OLLAMA_MODELS to a path on a
+drive with more room before running this, e.g. on Windows:
+    setx OLLAMA_MODELS "D:\\ollama-models"
+Ollama's own default (no env var needed) works fine for most people.
 """
 from __future__ import annotations
 
@@ -22,7 +27,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 PORT = 8765
-MODELS_DIR = r"D:\ollama-models"
 
 
 def ensure_python_deps() -> None:
@@ -52,9 +56,11 @@ def main() -> None:
         print(f"Python 3.10+ required (you have {sys.version.split()[0]}).")
         sys.exit(1)
 
-    # Models live on D: — set for this process and every child (ollama serve).
-    os.environ.setdefault("OLLAMA_MODELS", MODELS_DIR)
-    Path(os.environ["OLLAMA_MODELS"]).mkdir(parents=True, exist_ok=True)
+    # Respect OLLAMA_MODELS if the user already set it (e.g. to store models
+    # on a bigger/faster drive); otherwise leave it unset and let Ollama use
+    # its own default location.
+    if os.environ.get("OLLAMA_MODELS"):
+        Path(os.environ["OLLAMA_MODELS"]).mkdir(parents=True, exist_ok=True)
 
     ensure_python_deps()
 
