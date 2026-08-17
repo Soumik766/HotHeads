@@ -1,0 +1,6 @@
+name: moon-base-debate
+mode: debate
+topic: "Should the first Moon base be built in a lava tube or on the surface?"
+persona_file: debate_default.yaml
+participants: [engineer, romantic]
+rounds: 4

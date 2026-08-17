@@ -1,0 +1,6 @@
+name: pizza-debate
+mode: debate
+topic: "Does pineapple belong on pizza?"
+persona_file: debate_default.yaml
+participants: [optimist, skeptic]
+rounds: 4
