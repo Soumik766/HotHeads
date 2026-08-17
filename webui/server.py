@@ -508,6 +508,7 @@ async def run_web_debate(topic: str, fighters: list[Persona], rounds: int,
                 async for chunk in ollama_client.stream_chat(p.model, messages,
                                                              options=options):
                     full_text += chunk
+                    yield {"type": "chunk", "persona": p.key, "text": chunk}
                 mood = await fetch_mood(p, full_text.strip())
             except ollama_client.OllamaError as e:
                 full_text = full_text or f"[error: {e}]"
@@ -683,7 +684,7 @@ async def h_debate(request: web.Request) -> web.StreamResponse:
                              for i, k in enumerate(keys)]})
     try:
         async for ev in run_web_debate(topic, fighters, rounds, mode):
-            if ev["type"] in ("phase", "start"):
+            if ev["type"] in ("phase", "start", "chunk"):
                 await send(ev)
                 continue
             mood = normalize_mood(ev["mood"])
@@ -784,6 +785,7 @@ async def h_solo(request: web.Request) -> web.StreamResponse:
         async for chunk in ollama_client.stream_chat(opponent.model, messages,
                                                       options={"num_predict": 80}):
             full_text += chunk
+            await send({"type": "chunk", "persona": persona_key, "text": chunk})
         mood = await fetch_mood(opponent, full_text.strip())
     except ollama_client.OllamaError as e:
         full_text = full_text or f"[error: {e}]"

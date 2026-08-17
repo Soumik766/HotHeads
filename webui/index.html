@@ -189,6 +189,11 @@
   .tdot:nth-child(2){animation-delay:.18s}
   .tdot:nth-child(3){animation-delay:.36s}
   @keyframes tb{30%{opacity:1;transform:translateY(-4px)}}
+  .msg.live .bubble::after{
+    content:"▌";display:inline-block;margin-left:2px;color:var(--pc);
+    animation:blink 1s step-end infinite;
+  }
+  @keyframes blink{50%{opacity:0}}
 
   #empty-arena{
     height:100%;display:flex;flex-direction:column;align-items:center;
@@ -547,9 +552,18 @@ function setMode(newMode){
   $("#topic").placeholder = MODE_UI[mode].placeholder;
   $("#go").textContent = MODE_UI[mode].go;
   $("#rounds-sel").style.display = mode === "solo" ? "none" : "";
-  if (mode === "solo" && selected.size !== 1){
-    const keep = [...selected][0] || (personas[0] && personas[0].key);
-    selected = new Set(keep ? [keep] : []);
+  if (mode === "solo"){
+    if (selected.size !== 1){
+      const keep = [...selected][0] || (personas[0] && personas[0].key);
+      selected = new Set(keep ? [keep] : []);
+    }
+  } else if (selected.size < 2){
+    const have = [...selected];
+    for (const p of personas){
+      if (have.length >= 2) break;
+      if (!have.includes(p.key)) have.push(p.key);
+    }
+    selected = new Set(have);
   }
   renderChips();
   resetArena();
@@ -651,10 +665,12 @@ function showEmpty(){
   setHeat(8); $("#gauge-num").textContent = "—";
 }
 function resetArena(){
-  finishStream(); removeTyping();
-  streamDone = true; queue = [];
-  soloBusy = false;
+  if (es){ es.close(); es = null; }
+  clearStream();
+  running = false; soloBusy = false;
   $("#go").disabled = false; $("#topic").disabled = false;
+  $("#go").classList.remove("stop");
+  $("#go").textContent = MODE_UI[mode].go;
   activeChatId = null;
   fightMeta = null;
   $("#fight-title").textContent = "—"; $("#fight-vs").textContent = "";
@@ -713,8 +729,6 @@ function addPhaseDivider(label){
   scrollDown();
 }
 
-/* typing indicator */
-let typingEl = null;
 function fighterInfo(key){
   if (fightMeta){
     const f = fightMeta.personas.find(p=>p.key===key);
@@ -723,77 +737,57 @@ function fighterInfo(key){
   const p = pmap()[key];
   return p ? {key, name:p.name, role:"", color:p.color} : null;
 }
-function showTypingFor(key){
-  const f = fighterInfo(key);
+
+/* ---------------- live streaming ----------------
+   No artificial pacing: a message bubble opens the instant a persona
+   starts generating (typing dots), then fills in token-by-token as
+   chunks arrive over SSE — as fast as the model actually produces it. */
+let streamEl = null, streamPersona = null, streamStarted = false, running = false;
+
+function beginStream(personaKey){
+  const f = fighterInfo(personaKey);
   if (!f) return;
-  if (typingEl && typingEl.dataset.k === key) return;
-  removeTyping();
-  typingEl = msgEl(f.color, sideOf[key] || "left");
-  typingEl.dataset.k = key;
-  typingEl.classList.add("typing");
-  typingEl.querySelector(".avatar").innerHTML = faceSVG(col(f.color), "curious");
-  typingEl.querySelector(".nm").textContent = f.name;
-  typingEl.querySelector(".mood").textContent = "typing…";
-  typingEl.querySelector(".bubble").innerHTML =
+  streamEl = msgEl(f.color, sideOf[personaKey] || "left");
+  streamPersona = personaKey;
+  streamStarted = false;
+  streamEl.classList.add("typing");
+  streamEl.querySelector(".avatar").innerHTML = faceSVG(col(f.color), "curious");
+  streamEl.querySelector(".nm").textContent = f.name;
+  streamEl.querySelector(".role").textContent = f.role ? "· "+f.role : "";
+  streamEl.querySelector(".mood").textContent = "typing…";
+  streamEl.querySelector(".bubble").innerHTML =
     `<span class="tdot"></span><span class="tdot"></span><span class="tdot"></span>`;
-  $("#messages").appendChild(typingEl);
+  $("#messages").appendChild(streamEl);
   scrollDown();
 }
-function removeTyping(){ if (typingEl){ typingEl.remove(); typingEl = null; } }
-
-/* ---------------- paced playback ---------------- */
-let queue = [], streamDone = false, pumping = false, generating = null, running = false;
-let liveMode = "debate";  // mode of the fight currently streaming
-
-/* Discuss mode feels like a real group chat: sometimes instant, sometimes
-   they leave you hanging. Fight mode is steadier. */
-function typeDelay(){
-  if (liveMode === "chat"){
-    const r = Math.random();
-    if (r < 0.25) return 150;                 // instant reply
-    if (r < 0.85) return 500 + Math.random()*1800;
-    return 2500 + Math.random()*2000;         // went to get a snack
+function appendStreamChunk(personaKey, text){
+  if (!streamEl || streamPersona !== personaKey) return;
+  if (!streamStarted){
+    streamEl.classList.remove("typing");
+    streamEl.classList.add("live");
+    streamEl.querySelector(".mood").textContent = "";
+    streamEl.querySelector(".bubble").textContent = "";
+    streamStarted = true;
   }
-  return 900 + Math.random()*700;
+  streamEl.querySelector(".bubble").textContent += text;
+  scrollDown();
 }
-function readTime(t){
-  return liveMode === "chat"
-    ? Math.min(700 + t.length * 28, 4200)
-    : Math.min(1600 + t.length * 34, 7000);
+function finalizeStream(m){
+  const el = (streamEl && streamPersona === m.persona) ? streamEl : msgEl(m.color, sideOf[m.persona] || "left");
+  if (el !== streamEl) $("#messages").appendChild(el);
+  el.classList.remove("typing", "live");
+  el.querySelector(".avatar").innerHTML = faceSVG(col(m.color), m.mood);
+  el.querySelector(".nm").textContent = m.name;
+  el.querySelector(".role").textContent = m.role ? "· "+m.role : "";
+  el.querySelector(".bubble").textContent = m.text;
+  el.querySelector(".mood").textContent = m.mood ? `feeling ${m.mood}` : "";
+  scrollDown();
+  if (m.heat != null) setHeat(m.heat);
+  if (streamPersona === m.persona){ streamEl = null; streamPersona = null; }
 }
-
-async function pump(){
-  if (pumping) return;
-  pumping = true;
-  let freshBeat = true;   // true right after start / a phase divider
-  while (true){
-    if (queue.length){
-      const item = queue.shift();
-      if (item.type === "phase"){ removeTyping(); addPhaseDivider(item.label); freshBeat = true; continue; }
-      if (freshBeat){
-        // first line of a beat: show typing, then let it "think" briefly
-        showTypingFor(item.persona);
-        await sleep(typeDelay());
-      }
-      removeTyping();
-      revealMsg(item);
-      // show whoever's up next as typing RIGHT NOW, overlapping with the
-      // read pause below, so there's never a dead gap before a reply
-      const next = queue.find(q => q.type !== "phase");
-      if (next) showTypingFor(next.persona);
-      else if (!streamDone && generating) showTypingFor(generating);
-      await sleep(readTime(item.text));
-      freshBeat = false;
-    } else if (streamDone){
-      break;
-    } else {
-      if (generating) showTypingFor(generating);
-      await sleep(250);
-    }
-  }
-  removeTyping();
-  finishStream();
-  pumping = false;
+function clearStream(){
+  if (streamEl){ streamEl.classList.remove("typing"); }
+  streamEl = null; streamPersona = null;
 }
 
 $("#go").onclick = ()=>{
@@ -826,7 +820,7 @@ function sendSolo(){
   soloBusy = true;
   $("#go").disabled = true;
   $("#topic").disabled = true;
-  showTypingFor(personaKey);
+  beginStream(personaKey);
 
   const url = `/api/solo?message=${encodeURIComponent(message)}&persona=${personaKey}`
     + (activeChatId ? `&chat_id=${activeChatId}` : "");
@@ -838,7 +832,8 @@ function sendSolo(){
       fightMeta = d;
       if (freshThread) setHeader(d.topic, [`${d.personas[0].name} (${d.personas[0].role})`]);
     }
-    else if (d.type === "end"){ removeTyping(); revealMsg(d); }
+    else if (d.type === "chunk"){ appendStreamChunk(d.persona, d.text); }
+    else if (d.type === "end"){ finalizeStream(d); }
     else if (d.type === "done"){
       src.close();
       soloBusy = false;
@@ -848,7 +843,7 @@ function sendSolo(){
     }
   };
   src.onerror = ()=>{
-    removeTyping();
+    clearStream();
     src.close();
     soloBusy = false;
     $("#go").disabled = false; $("#topic").disabled = false;
@@ -870,8 +865,7 @@ function startDebate(){
   setHeat(8);
   activeChatId = null;
   fightMeta = null;
-  liveMode = mode;
-  queue = []; streamDone = false; generating = keys[0];
+  clearStream();
   setGo("stop");
 
   es = new EventSource(`/api/debate?topic=${encodeURIComponent(topic)}`+
@@ -884,40 +878,29 @@ function startDebate(){
       fightMeta = d;
       setHeader(d.topic, d.personas.map(p=>`${p.name} (${p.role})`));
     }
-    else if (d.type === "phase"){ queue.push(d); }
-    else if (d.type === "start"){ generating = d.persona; }
-    else if (d.type === "end"){ queue.push(d); }
-    else if (d.type === "done"){ streamDone = true; if (es){ es.close(); es = null; } refreshChatList(); }
+    else if (d.type === "phase"){ clearStream(); addPhaseDivider(d.label); }
+    else if (d.type === "start"){ beginStream(d.persona); }
+    else if (d.type === "chunk"){ appendStreamChunk(d.persona, d.text); }
+    else if (d.type === "end"){ finalizeStream(d); }
+    else if (d.type === "done"){ if (es){ es.close(); es = null; } setGo("fight"); refreshChatList(); }
   };
-  es.onerror = ()=>{ streamDone = true; if (es){ es.close(); es = null; } };
-  pump();
+  es.onerror = ()=>{ clearStream(); if (es){ es.close(); es = null; } setGo("fight"); };
 }
 function stopFight(){
   if (es){ es.close(); es = null; }
-  streamDone = true;
-  const rest = queue; queue = [];
-  removeTyping();
-  for (const item of rest){
-    if (item.type === "phase") addPhaseDivider(item.label);
-    else revealMsg(item);
-  }
-  generating = null;
+  clearStream();
   setGo("fight");
   refreshChatList();
-}
-function finishStream(){
-  if (es){ es.close(); es = null; }
-  generating = null;
-  setGo("fight");
 }
 
 /* open a saved chat — instant, no pacing. Solo chats stay live: sending
    another message continues the same thread via its chat_id. */
 async function openChat(id){
-  streamDone = true; queue = [];
-  finishStream(); removeTyping();
-  soloBusy = false;
+  if (es){ es.close(); es = null; }
+  clearStream();
+  running = false; soloBusy = false;
   $("#go").disabled = false; $("#topic").disabled = false;
+  $("#go").classList.remove("stop");
   const c = await (await fetch("/api/chats/"+id)).json();
   activeChatId = id;
   fightMeta = null;
