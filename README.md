@@ -47,7 +47,7 @@ by hand.
 > `OLLAMA_MODELS` environment variable to a folder on another drive
 > before running `start.py`.
 
-## Two modes
+## Three modes
 
 **🔥 Fight** — a formal debate with rounds, closing arguments, and a
 heat gauge that climbs as tempers flare.
@@ -59,6 +59,13 @@ agree, Mila?"), and a final verdict once they've actually talked it out.
 Replies land at human speed — sometimes instant, sometimes they leave
 you on read for a few seconds.
 
+**🥊 Solo** — you against one persona, live. Pick your opponent, say
+your piece, and they push back — every time. Devil's advocate by
+default, but it talks like a bro doing it: casual, a little teasing,
+never actually hostile. It's a real back-and-forth: keep typing and the
+conversation keeps going, picking up right where you left off, even if
+you close the tab and come back later.
+
 ## Build your own cast
 
 Click **🎭 Personas** (bottom-left) to:
@@ -68,8 +75,8 @@ Click **🎭 Personas** (bottom-left) to:
   any model Ollama supports. Pick an installed model and it's ready
   instantly; pick one you don't have and HotHeads downloads it for you,
   with live progress, right from the picker.
-- Mix and match any 2+ personas per fight — hothead, monk, brat,
-  whatever cast you want in the ring.
+- Mix and match any 2+ personas for a Fight or Discuss, or pick just one
+  for Solo — hothead, monk, brat, whatever cast you want in the ring.
 
 Every persona keeps its prompt, stays in character, and gets a random
 human name each fight so it feels like people talking, not model

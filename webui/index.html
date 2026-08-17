@@ -258,6 +258,8 @@
     min-width:82px;box-shadow:0 2px 6px rgba(180,120,20,.25);
   }
   #go.stop{background:var(--paper);color:var(--fail);border:1px solid var(--fail);box-shadow:none}
+  #go:disabled{filter:grayscale(.6);opacity:.55;cursor:default;box-shadow:none}
+  #topic:disabled{opacity:.6}
 
   /* ---------------- personas modal ---------------- */
   #modal-back{
@@ -374,6 +376,7 @@
             <div id="mode-row">
               <button class="seg on" data-mode="debate">🔥 Fight</button>
               <button class="seg" data-mode="chat">💬 Discuss</button>
+              <button class="seg" data-mode="solo">🥊 Solo</button>
             </div>
             <span id="chips" style="display:flex;gap:8px;flex-wrap:wrap"></span>
             <select id="rounds-sel">
@@ -399,7 +402,8 @@
     <header><h2>🎭 Personas</h2><button class="x" id="modal-close">✕</button></header>
     <div class="hint">Each persona is a character backed by a local model. Edit the
       prompt to change how it argues — a hothead, a calm monk, a spoiled brat,
-      anything. Add as many as you like and pick any 2+ for a fight.</div>
+      anything. Add as many as you like: pick 2+ for a Fight or Discuss, or
+      just one to go head-to-head in Solo.</div>
     <div id="p-list"></div>
     <button id="add-persona">＋ &nbsp;Add persona</button>
   </div>
@@ -494,11 +498,13 @@ let es = null;
 let activeChatId = null;
 let sideOf = {};
 let fightMeta = null;
-let mode = "debate";      // "debate" | "chat"
+let mode = "debate";      // "debate" | "chat" | "solo"
+let soloBusy = false;
 
 const MODE_UI = {
   debate: {placeholder:"What should they fight about? e.g. tabs vs spaces", go:"Fight"},
   chat:   {placeholder:"Ask them anything… e.g. GOD vs me — who wins?", go:"Send"},
+  solo:   {placeholder:"Say something — they'll push back… e.g. pineapple belongs on pizza", go:"Send"},
 };
 
 /* ---------------- setup flow ---------------- */
@@ -534,14 +540,24 @@ $("#retry-btn").onclick = async ()=>{
 };
 
 /* ---------------- mode toggle ---------------- */
+function setMode(newMode){
+  mode = newMode;
+  document.querySelectorAll("#mode-row .seg").forEach(x=>
+    x.classList.toggle("on", x.dataset.mode === mode));
+  $("#topic").placeholder = MODE_UI[mode].placeholder;
+  $("#go").textContent = MODE_UI[mode].go;
+  $("#rounds-sel").style.display = mode === "solo" ? "none" : "";
+  if (mode === "solo" && selected.size !== 1){
+    const keep = [...selected][0] || (personas[0] && personas[0].key);
+    selected = new Set(keep ? [keep] : []);
+  }
+  renderChips();
+  resetArena();
+}
 document.querySelectorAll("#mode-row .seg").forEach(b=>{
   b.onclick = ()=>{
-    if (running) return;
-    mode = b.dataset.mode;
-    document.querySelectorAll("#mode-row .seg").forEach(x=>
-      x.classList.toggle("on", x===b));
-    $("#topic").placeholder = MODE_UI[mode].placeholder;
-    if (!running) $("#go").textContent = MODE_UI[mode].go;
+    if (running || soloBusy) return;
+    setMode(b.dataset.mode);
   };
 });
 
@@ -550,8 +566,11 @@ async function loadPersonas(){
   personas = await (await fetch("/api/personas")).json();
   const keys = new Set(personas.map(p=>p.key));
   selected = new Set([...selected].filter(k=>keys.has(k)));
-  if (selected.size < 2){
-    selected = new Set(personas.slice(0,2).map(p=>p.key));
+  const need = mode === "solo" ? 1 : 2;
+  if (selected.size < need){
+    selected = new Set(personas.slice(0, need).map(p=>p.key));
+  } else if (mode === "solo" && selected.size > 1){
+    selected = new Set([[...selected][0]]);
   }
   renderChips();
 }
@@ -576,9 +595,15 @@ function renderChips(){
     </button>`).join("");
   document.querySelectorAll("#chips .chip").forEach(ch=>{
     ch.onclick = ()=>{
+      if (running || soloBusy) return;
       const k = ch.dataset.k;
-      if (selected.has(k)){ if (selected.size>2) selected.delete(k); }
-      else selected.add(k);
+      if (mode === "solo"){
+        selected = new Set([k]);
+        resetArena();
+      } else {
+        if (selected.has(k)){ if (selected.size>2) selected.delete(k); }
+        else selected.add(k);
+      }
       renderChips();
     };
   });
@@ -607,6 +632,11 @@ async function refreshChatList(){
   });
 }
 
+const EMPTY_COPY = {
+  debate: "🔥 Fight — a formal debate with rounds.",
+  chat:   "💬 Discuss — a casual group chat that answers your question.",
+  solo:   "🥊 Solo — argue your side, one on one. They'll always push back.",
+};
 function showEmpty(){
   const duo = personas.slice(0,2);
   $("#messages").innerHTML = `
@@ -615,11 +645,20 @@ function showEmpty(){
         <div>${duo[0]?faceSVG(col(duo[0].color),"angry"):""}</div>
         <div>${duo[1]?faceSVG(col(duo[1].color),"smug"):""}</div>
       </div>
-      <h2>Start something</h2>
-      <div>🔥 Fight — a formal debate with rounds. &nbsp; 💬 Discuss — a casual
-      group chat that answers your question.</div>
+      <h2>${mode === "solo" ? "Say your piece" : "Start something"}</h2>
+      <div>${EMPTY_COPY[mode]}</div>
     </div>`;
   setHeat(8); $("#gauge-num").textContent = "—";
+}
+function resetArena(){
+  finishStream(); removeTyping();
+  streamDone = true; queue = [];
+  soloBusy = false;
+  $("#go").disabled = false; $("#topic").disabled = false;
+  activeChatId = null;
+  fightMeta = null;
+  $("#fight-title").textContent = "—"; $("#fight-vs").textContent = "";
+  showEmpty();
 }
 function setHeader(topic, parts){
   $("#fight-title").textContent = topic;
@@ -632,10 +671,19 @@ function setHeat(h){
 }
 function scrollDown(){ const m = $("#messages"); m.scrollTop = m.scrollHeight; }
 
-function msgEl(color, side){
+const YOU_COLOR = "#c77b0a";
+function youAvatarSVG(){
+  return `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+    <rect width="64" height="64" fill="#efe5cf"/>
+    <circle cx="32" cy="25" r="11" fill="none" stroke="${YOU_COLOR}" stroke-width="3.2"/>
+    <path d="M13 55 C13 40 21 33 32 33 C43 33 51 40 51 55" fill="none"
+          stroke="${YOU_COLOR}" stroke-width="3.2" stroke-linecap="round"/>
+  </svg>`;
+}
+function msgEl(color, side, isUser){
   const d = document.createElement("div");
-  d.className = "msg " + side;
-  d.style.setProperty("--pc", col(color));
+  d.className = "msg " + side + (isUser ? " user" : "");
+  d.style.setProperty("--pc", isUser ? YOU_COLOR : col(color));
   d.innerHTML = `
     <div class="avatar"></div>
     <div class="body">
@@ -645,8 +693,10 @@ function msgEl(color, side){
   return d;
 }
 function revealMsg(m){
-  const el = msgEl(m.color, sideOf[m.persona] || "left");
-  el.querySelector(".avatar").innerHTML = faceSVG(col(m.color), m.mood);
+  const isUser = m.persona === "user" || m.is_user;
+  const side = isUser ? "right" : (sideOf[m.persona] || "left");
+  const el = msgEl(m.color, side, isUser);
+  el.querySelector(".avatar").innerHTML = isUser ? youAvatarSVG() : faceSVG(col(m.color), m.mood);
   el.querySelector(".nm").textContent = m.name;
   el.querySelector(".role").textContent = m.role ? "· "+m.role : "";
   el.querySelector(".bubble").textContent = m.text;
@@ -736,8 +786,64 @@ async function pump(){
   pumping = false;
 }
 
-$("#go").onclick = ()=> running ? stopFight() : startDebate();
-$("#topic").addEventListener("keydown", e=>{ if (e.key==="Enter" && !running) startDebate(); });
+$("#go").onclick = ()=>{
+  if (mode === "solo") sendSolo();
+  else running ? stopFight() : startDebate();
+};
+$("#topic").addEventListener("keydown", e=>{
+  if (e.key !== "Enter") return;
+  if (mode === "solo") sendSolo();
+  else if (!running) startDebate();
+});
+
+function sendSolo(){
+  const message = $("#topic").value.trim();
+  if (!message || soloBusy) return;
+  const personaKey = [...selected][0];
+  if (!personaKey) return;
+
+  const freshThread = !activeChatId;
+  if (freshThread){
+    $("#messages").innerHTML = "";
+    setHeat(8);
+    fightMeta = null;
+    assignSides([personaKey]);
+  }
+  $("#topic").value = "";
+  revealMsg({persona: "user", name: "You", role: "", text: message,
+             mood: null, heat: null, is_user: true, color: "user"});
+
+  soloBusy = true;
+  $("#go").disabled = true;
+  $("#topic").disabled = true;
+  showTypingFor(personaKey);
+
+  const url = `/api/solo?message=${encodeURIComponent(message)}&persona=${personaKey}`
+    + (activeChatId ? `&chat_id=${activeChatId}` : "");
+  const src = new EventSource(url);
+  src.onmessage = ev=>{
+    const d = JSON.parse(ev.data);
+    if (d.type === "meta"){
+      activeChatId = d.chat_id;
+      fightMeta = d;
+      if (freshThread) setHeader(d.topic, [`${d.personas[0].name} (${d.personas[0].role})`]);
+    }
+    else if (d.type === "end"){ removeTyping(); revealMsg(d); }
+    else if (d.type === "done"){
+      src.close();
+      soloBusy = false;
+      $("#go").disabled = false; $("#topic").disabled = false;
+      $("#topic").focus();
+      refreshChatList();
+    }
+  };
+  src.onerror = ()=>{
+    removeTyping();
+    src.close();
+    soloBusy = false;
+    $("#go").disabled = false; $("#topic").disabled = false;
+  };
+}
 
 function setGo(state){
   running = state === "stop";
@@ -795,21 +901,44 @@ function finishStream(){
   setGo("fight");
 }
 
-/* open a saved chat — instant, no pacing */
+/* open a saved chat — instant, no pacing. Solo chats stay live: sending
+   another message continues the same thread via its chat_id. */
 async function openChat(id){
   streamDone = true; queue = [];
   finishStream(); removeTyping();
+  soloBusy = false;
+  $("#go").disabled = false; $("#topic").disabled = false;
   const c = await (await fetch("/api/chats/"+id)).json();
   activeChatId = id;
   fightMeta = null;
   $("#messages").innerHTML = "";
   const pm = pmap();
-  assignSides(c.participants);
-  const names = c.names || {};
-  setHeader(c.topic, c.participants.map(k=>{
-    const role = pm[k] ? pm[k].name : k;
-    return names[k] ? `${names[k]} (${role})` : role;
-  }));
+
+  if (c.mode === "solo"){
+    if (mode !== "solo"){
+      mode = "solo";
+      document.querySelectorAll("#mode-row .seg").forEach(x=>
+        x.classList.toggle("on", x.dataset.mode === "solo"));
+      $("#topic").placeholder = MODE_UI.solo.placeholder;
+      $("#go").textContent = MODE_UI.solo.go;
+      $("#rounds-sel").style.display = "none";
+    }
+    selected = new Set(c.participants);
+    renderChips();
+    assignSides(c.participants);
+    const k = c.participants[0];
+    const names = c.names || {};
+    const label = pm[k] ? `${names[k] || pm[k].name} (${pm[k].name})` : (names[k] || k);
+    setHeader(c.topic, [label]);
+  } else {
+    assignSides(c.participants);
+    const names = c.names || {};
+    setHeader(c.topic, c.participants.map(k=>{
+      const role = pm[k] ? pm[k].name : k;
+      return names[k] ? `${names[k]} (${role})` : role;
+    }));
+  }
+
   let lastHeat = 8, closingShown = false;
   const closeLabel = c.mode === "chat" ? "The verdict" : "Closing arguments";
   for (const m of c.messages){
@@ -821,11 +950,8 @@ async function openChat(id){
 }
 
 $("#new-chat").onclick = ()=>{
-  streamDone = true; queue = [];
-  finishStream(); removeTyping();
-  activeChatId = null;
-  $("#fight-title").textContent = "—"; $("#fight-vs").textContent = "";
-  showEmpty(); refreshChatList();
+  resetArena();
+  refreshChatList();
   $("#topic").value=""; $("#topic").focus();
 };
 

@@ -6,7 +6,8 @@ One aiohttp app that serves:
   - persona management (edit prompts, add personas backed by any Ollama model)
   - model catalog + on-demand downloads with progress
   - past chats (JSON files under chats/)
-  - a live debate as Server-Sent Events (random display names, closing round)
+  - a live debate/discussion as Server-Sent Events (random display names, closing round)
+  - a solo 1:1 chat where a single persona always argues the other side
 
 Launched by start.py — not meant to be run directly by end users.
 """
@@ -387,6 +388,7 @@ def list_chats() -> list[dict]:
                 "created": data["created"],
                 "participants": data["participants"],
                 "count": len(data.get("messages", [])),
+                "mode": data.get("mode", "debate"),
             })
         except (json.JSONDecodeError, KeyError):
             continue
@@ -418,6 +420,32 @@ CHAT_CLOSING = (
     "Time to wrap it up. Give your final verdict on the question in ONE "
     "short line, in character. An emoji is fine if it fits."
 )
+
+# Solo mode: it's you against one persona, and the persona is built to
+# always take the other side.
+SOLO_STYLE = (
+    "\nRight now it's just the two of you talking directly, one-on-one, like"
+    " texting a close friend. Whatever they say, you push back — play devil's"
+    " advocate, poke holes, ask 'wait, how do you figure that', bring up the"
+    " downside they're not mentioning. You almost never just agree outright."
+    " But it's warm pushback, not hostility — talk like a bro: casual,"
+    " a little teasing, on their side even while you're arguing with them"
+    " ('nah bro hear me out though...', '*tilts head* okay but what about...',"
+    " 'i mean i love you but that's not it chief'). ONE short line most of the"
+    " time, under 20 words. Actions in asterisks and emoji are fine, never"
+    " forced. Talk directly to them, you don't know their name so don't"
+    " invent one."
+)
+
+
+def _build_solo_messages(
+    persona: Persona, transcript: list[tuple[str, str]]
+) -> list[dict[str, str]]:
+    messages: list[dict[str, str]] = [{"role": "system", "content": persona.system_prompt}]
+    for speaker, text in transcript:
+        role = "assistant" if speaker == persona.name else "user"
+        messages.append({"role": role, "content": text})
+    return messages
 
 
 def _build_chat_messages(
@@ -673,6 +701,98 @@ async def h_debate(request: web.Request) -> web.StreamResponse:
     return resp
 
 
+async def h_solo(request: web.Request) -> web.StreamResponse:
+    """SSE: one turn of a solo 1:1 chat — user message in, one persona reply out.
+
+    Unlike /api/debate (which autoplays a whole fight from a single topic),
+    this is called once per user message, carrying the running chat_id so
+    the transcript and heat persist turn to turn.
+    """
+    message = request.query.get("message", "").strip()
+    persona_key = request.query.get("persona", "").strip()
+    chat_id = request.query.get("chat_id", "").strip()
+    if not message or not persona_key:
+        raise web.HTTPBadRequest(text="message and persona required")
+
+    catalog = all_personas()
+    if persona_key not in catalog:
+        raise web.HTTPBadRequest(text="unknown persona")
+
+    if chat_id:
+        path = _chat_path(chat_id)
+        if not path.exists():
+            raise web.HTTPNotFound()
+        chat = json.loads(path.read_text(encoding="utf-8"))
+    else:
+        chat_id = time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6]
+        display = random.choice(NAMES)
+        chat = {
+            "id": chat_id, "topic": message[:80], "created": time.time(),
+            "participants": [persona_key], "mode": "solo", "messages": [],
+            "names": {persona_key: display},
+        }
+
+    display = chat["names"][persona_key]
+    base = persona_obj(catalog[persona_key])
+    opponent = dataclasses.replace(
+        base, name=display, system_prompt=base.system_prompt + SOLO_STYLE,
+    )
+
+    last_heat = chat["messages"][-1]["heat"] if chat["messages"] else 15
+    transcript = [(m["name"], m["text"]) for m in chat["messages"]]
+    transcript.append(("You", message))
+
+    user_msg = {
+        "persona": "user", "name": "You", "role": "", "emoji": "🙂", "color": "user",
+        "text": message, "mood": None, "mood_emoji": None, "heat": last_heat,
+        "is_user": True,
+    }
+    chat["messages"].append(user_msg)
+
+    resp = web.StreamResponse(headers={
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+    })
+    await resp.prepare(request)
+
+    async def send(payload: dict) -> None:
+        await resp.write(f"data: {json.dumps(payload)}\n\n".encode("utf-8"))
+
+    await send({"type": "meta", "chat_id": chat_id, "topic": chat["topic"], "mode": "solo",
+                "personas": [{"key": persona_key, "name": display,
+                              "role": catalog[persona_key]["name"],
+                              "emoji": catalog[persona_key]["emoji"],
+                              "color": catalog[persona_key]["color"]}]})
+    await send({"type": "start", "persona": persona_key})
+    full_text = ""
+    mood = "neutral"
+    try:
+        messages = _build_solo_messages(opponent, transcript)
+        async for chunk in ollama_client.stream_chat(opponent.model, messages,
+                                                      options={"num_predict": 80}):
+            full_text += chunk
+        mood = await fetch_mood(opponent, full_text.strip())
+    except ollama_client.OllamaError as e:
+        full_text = full_text or f"[error: {e}]"
+        mood = "confused"
+
+    mood = normalize_mood(mood)
+    heat = min(100.0, 0.75 * last_heat + mood_heat(mood) * 11 + 4)
+    bot_msg = {
+        "persona": persona_key, "name": display, "role": catalog[persona_key]["name"],
+        "emoji": catalog[persona_key]["emoji"], "color": catalog[persona_key]["color"],
+        "text": strip_name_prefix(full_text.strip(), [display]),
+        "mood": mood, "mood_emoji": emoji_for(mood), "heat": round(heat),
+        "is_user": False,
+    }
+    chat["messages"].append(bot_msg)
+    _chat_path(chat_id).write_text(json.dumps(chat, indent=2), encoding="utf-8")
+    await send({"type": "end", **bot_msg})
+    await send({"type": "done", "chat_id": chat_id})
+    return resp
+
+
 def make_app() -> web.Application:
     app = web.Application()
     app.add_routes([
@@ -689,6 +809,7 @@ def make_app() -> web.Application:
         web.get("/api/chats/{id}", h_chat_get),
         web.delete("/api/chats/{id}", h_chat_delete),
         web.get("/api/debate", h_debate),
+        web.get("/api/solo", h_solo),
     ])
     return app
 
